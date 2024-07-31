@@ -96,7 +96,12 @@ const router = express.Router();
 connectDB();
 
 // Use CORS middleware to allow requests from your React app
-app.use(cors());
+// app.use(cors());
+app.use(cors({
+  origin: ['https://propertylisting-nu.vercel.app', "https://prop-admin-cluk.vercel.app", 'http://localhost:5173'], // Allow your Vercel domain
+  methods: ['GET', 'POST', 'DELETE', 'PUT', 'PATCH'],
+  credentials: true,
+}));
 app.use(express.json());
 
 // Multer setup for file uploads
