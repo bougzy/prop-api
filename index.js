@@ -189,6 +189,37 @@ app.post('/login', async (req, res) => {
 
 // User routes
 
+// app.post('/property', authenticateToken, upload.fields([{ name: 'images', maxCount: 5 }, { name: 'videos', maxCount: 2 }]), async (req, res) => {
+//   try {
+//     const { title, description, address, phoneNumber } = req.body;
+
+//     // Validate inputs
+//     if (!title || !description || !address || !phoneNumber) {
+//       return res.status(400).send('All fields are required');
+//     }
+
+//     const imageUrls = req.files['images'] ? req.files['images'].map(file => file.path) : [];
+//     const videoUrls = req.files['videos'] ? req.files['videos'].map(file => file.path) : [];
+
+//     const property = new Property({
+//       title,
+//       description,
+//       address,
+//       phoneNumber,
+//       images: imageUrls,
+//       videos: videoUrls,
+//       user: req.user._id,
+//     });
+
+//     const savedProperty = await property.save();
+//     res.send(savedProperty);
+//   } catch (err) {
+//     console.error('Error saving property:', err);  // Log error for debugging
+//     res.status(500).send('Failed to add property');
+//   }
+// });
+
+
 app.post('/property', authenticateToken, upload.fields([{ name: 'images', maxCount: 5 }, { name: 'videos', maxCount: 2 }]), async (req, res) => {
   try {
     const { title, description, address, phoneNumber } = req.body;
@@ -212,10 +243,9 @@ app.post('/property', authenticateToken, upload.fields([{ name: 'images', maxCou
     });
 
     const savedProperty = await property.save();
-    res.send(savedProperty);
+    res.status(201).json(savedProperty);
   } catch (err) {
-    console.error('Error saving property:', err);  // Log error for debugging
-    res.status(500).send('Failed to add property');
+    res.status(500).json({ error: err.message });
   }
 });
 
