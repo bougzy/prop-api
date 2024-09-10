@@ -13,7 +13,9 @@ app.use(express.json());
 
 app.use(cors({
   origin: [
-      process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+      process.env.CLIENT_ORIGIN || 'https://bayelsaconnect.vercel.app',
+      'https://bayelsaconnect.vercel.app/register',
+      'https://bayelsaconnect.vercel.app/login',
       'http://localhost:5173',
       'http://localhost:5173/login',
       'http://localhost:5173/register'
