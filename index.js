@@ -1,149 +1,252 @@
-// server.js
-
-const express = require("express");
-const multer = require("multer");
-const cors = require("cors");
-const connectDB = require("./config/db");
-const propertyController = require("./Controllers/propertyController");
-const authRoutes = require("./routes/authRoutes");
-const adminRoutes = require("./routes/adminRoutes");
+const express = require('express');
+const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const cors = require('cors');
+const multer = require('multer');
+require('dotenv').config();
+const path = require('path');
 
 const app = express();
-const router = express.Router();
 
-// Connect to MongoDB
-connectDB();
 app.use(express.json());
-app.use(cors());
 
-// Multer setup for file uploads
-const storage = multer.memoryStorage(); // Store files in memory
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = ["image/jpeg", "image/png", "video/mp4"];
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error("Invalid file type"), false);
-  }
-};
-
-const upload = multer({ storage: storage, fileFilter: fileFilter });
-
-// Route to handle property creation with file upload
-router.post(
-  "/",
-  upload.fields([
-    { name: "images", maxCount: 10 },
-    { name: "videos", maxCount: 10 },
-  ]),
-  propertyController.createProperty
-);
-
-// Route to update property with file upload
-router.put(
-  "/:id",
-  upload.fields([
-    { name: "images", maxCount: 10 },
-    { name: "videos", maxCount: 10 },
-  ]),
-  propertyController.updateProperty
-);
-
-router.get("/", propertyController.getAllProperties);
-router.get("/:id", propertyController.getPropertyById);
-router.delete("/:id", propertyController.deleteProperty);
-
-// Auth and Admin Routes
-app.use("/api/auth", authRoutes);
-app.use("/api/admin", adminRoutes);
-
-// Property Routes
-app.use("/api/properties", router);
+app.use(cors({
+  origin: [
+      process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+      'http://localhost:5173',
+      'http://localhost:5173/login',
+      'http://localhost:5173/register'
+  ],
+  credentials: true
+}));
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+// MongoDB connection
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+});
+
+// Schema Definitions
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  isBlocked: { type: Boolean, default: false },
+});
+
+const propertySchema = new mongoose.Schema({
+  title: String,
+  description: String,
+  address: String,
+  phoneNumber: String,
+  images: [String],
+  videos: [String],
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+});
+
+// Models
+const User = mongoose.model('User', userSchema);
+const Property = mongoose.model('Property', propertySchema);
+
+// Middleware for authentication
+const authenticateToken = (req, res, next) => {
+  const token = req.header('auth-token');
+  if (!token) return res.status(401).send('Access Denied');
+
+  try {
+    const verified = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = verified;
+    next();
+  } catch (err) {
+    res.status(400).send('Invalid Token');
+  }
+};
+
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+
+// Admin authentication middleware
+const adminAuth = (req, res, next) => {
+  const token = req.header('auth-token');
+  if (!token) return res.status(401).send('Access Denied');
+
+  try {
+    const verified = jwt.verify(token, process.env.JWT_SECRET);
+    if (verified.role === 'admin') {
+      req.user = verified;
+      next();
+    } else {
+      res.status(403).send('Access Forbidden');
+    }
+  } catch (err) {
+    res.status(400).send('Invalid Token');
+  }
+};
+
+// Setup multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + '-' + file.originalname);
+  },
+});
+
+const upload = multer({ storage: storage });
+
+// User Registration
+app.post('/register', async (req, res) => {
+  const { username, email, password } = req.body;
+  if (!email) return res.status(400).send("Email is required");
+  
+  const salt = await bcrypt.genSalt(10);
+  const hashedPassword = await bcrypt.hash(password, salt);
+
+  const user = new User({
+    username,
+    email,
+    password: hashedPassword,
+  });
+
+  try {
+    const savedUser = await user.save();
+    res.send({ user: user._id });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(400).send('User with this email already exists');
+    }
+    res.status(400).send(err);
+  }
+});
+
+// Admin Login with hardcoded credentials
+app.post('/admin/login', async (req, res) => {
+  const { username, password } = req.body;
+
+  if (username === 'admin' && password === 'admin123') {
+    const token = jwt.sign({ role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    res.header('auth-token', token).send({ token });
+  } else {
+    res.status(403).send('Invalid Admin Credentials');
+  }
+});
+
+// User Login
+app.post('/login', async (req, res) => {
+  const user = await User.findOne({ username: req.body.username });
+  if (!user || user.isBlocked) return res.status(400).send('Access denied');
+
+  const validPass = await bcrypt.compare(req.body.password, user.password);
+  if (!validPass) return res.status(400).send('Invalid password');
+
+  const token = jwt.sign({ _id: user._id, role: 'user' }, process.env.JWT_SECRET, { expiresIn: '1h' });
+  res.header('auth-token', token).send({ token });
+});
+
+app.post('/property', authenticateToken, upload.fields([{ name: 'images', maxCount: 5 }, { name: 'videos', maxCount: 2 }]), async (req, res) => {
+  const { title, description, address, phoneNumber } = req.body;
+
+  // Check for missing fields
+  if (!title || !description || !address || !phoneNumber) {
+    return res.status(400).send('All fields are required');
+  }
+
+  const imageUrls = req.files['images'] ? req.files['images'].map(file => file.path) : [];
+  const videoUrls = req.files['videos'] ? req.files['videos'].map(file => file.path) : [];
+
+  const property = new Property({
+    title,
+    description,
+    address,
+    phoneNumber,
+    images: imageUrls,
+    videos: videoUrls,
+    user: req.user._id,
+  });
+
+  try {
+    const savedProperty = await property.save();
+    res.send(savedProperty);
+  } catch (err) {
+    res.status(400).send(err);
+  }
 });
 
 
+// User routes
+app.get('/user/properties', authenticateToken, async (req, res) => {
+  try {
+    const properties = await Property.find({ user: req.user._id });
+    res.send(properties);
+  } catch (err) {
+    res.status(400).send(err);
+  }
+});
 
-// // server.js
-// const express = require("express");
-// const multer = require("multer");
-// const cors = require("cors");
-// const connectDB = require("./config/db");
-// const propertyController = require("./Controllers/propertyController");
-// const authRoutes = require("./routes/authRoutes");
-// const adminRoutes = require("./routes/adminRoutes");
+// Delete property
+app.delete('/property/:id', authenticateToken, async (req, res) => {
+  try {
+    const property = await Property.findOneAndDelete({ _id: req.params.id, user: req.user._id });
+    if (!property) return res.status(404).send('Property not found or unauthorized');
+    res.send('Property deleted successfully');
+  } catch (err) {
+    res.status(400).send(err);
+  }
+});
 
-// const app = express();
-// const router = express.Router();
 
-// // Connect to MongoDB
-// connectDB();
-// app.use(express.json());
-// app.use(cors());
+// Admin routes
+app.get('/admin/users', adminAuth, async (req, res) => {
+  try {
+    const users = await User.find();
+    res.send(users);
+  } catch (err) {
+    res.status(400).send(err);
+  }
+});
 
-// // Multer setup for file uploads
-// const storage = multer.memoryStorage(); // Store files in memory
-// const fileFilter = (req, file, cb) => {
-//   const allowedTypes = ["image/jpeg", "image/png", "video/mp4"];
-//   if (allowedTypes.includes(file.mimetype)) {
-//     cb(null, true);
-//   } else {
-//     cb(new Error("Invalid file type"), false);
-//   }
-// };
+app.post('/admin/block-user', adminAuth, async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(req.body.userId, { isBlocked: true }, { new: true });
+    res.send(user);
+  } catch (err) {
+    res.status(400).send(err);
+  }
+});
 
-// const upload = multer({ storage: storage, fileFilter: fileFilter });
+app.post('/admin/unblock-user', adminAuth, async (req, res) => {
+  try {
+    const user = await User.findByIdAndUpdate(req.body.userId, { isBlocked: false }, { new: true });
+    res.send(user);
+  } catch (err) {
+    res.status(400).send(err);
+  }
+});
 
-// // Route to handle property creation with file upload
-// router.post(
-//   "/",
-//   upload.fields([
-//     { name: "images", maxCount: 10 },
-//     { name: "videos", maxCount: 10 },
-//   ]),
-//   propertyController.createProperty
-// );
+app.post('/admin/delete-property', adminAuth, async (req, res) => {
+  try {
+    const property = await Property.findByIdAndDelete(req.body.propertyId);
+    if (!property) return res.status(404).send('Property not found');
+    res.send(property);
+  } catch (err) {
+    res.status(400).send(err);
+  }
+});
 
-// // Route to update property with file upload
-// router.put(
-//   "/:id",
-//   upload.fields([
-//     { name: "images", maxCount: 10 },
-//     { name: "videos", maxCount: 10 },
-//   ]),
-//   propertyController.updateProperty
-// );
+// Fetch all properties
+app.get('/properties', async (req, res) => {
+  try {
+    const properties = await Property.find().populate('user', 'username');
+    res.send(properties);
+  } catch (err) {
+    res.status(400).send(err);
+  }
+});
 
-// // Route to fetch property by ID
-// router.get("/:id", propertyController.getPropertyById);
-
-// // Route to fetch all properties with pagination and search
-// router.get("/", propertyController.getAllProperties);
-
-// // Route to delete a property by ID
-// router.delete("/:id", propertyController.deleteProperty);
-
-// // Use the router for the "/api/properties" endpoint
-// app.use("/api/properties", router);
-
-// app.use("/api/auth", authRoutes);
-// app.use("/api/admin", adminRoutes);
-
-// // Add a route for the root URL
-// app.get("/", (req, res) => {
-//   res.send("Welcome to the Real Estate API");
-// });
-
-// // Error handling middleware
-// app.use((err, req, res, next) => {
-//   console.error("Server Error:", err.stack);
-//   res.status(500).json({ error: "Something went wrong!" });
-// });
-
-// // Start server
-// const PORT = process.env.PORT || 5000;
-// app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
