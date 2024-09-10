@@ -157,37 +157,71 @@ app.post('/login', async (req, res) => {
   res.header('auth-token', token).send({ token });
 });
 
+// app.post('/property', authenticateToken, upload.fields([{ name: 'images', maxCount: 5 }, { name: 'videos', maxCount: 2 }]), async (req, res) => {
+//   const { title, description, address, phoneNumber } = req.body;
+
+//   // Check for missing fields
+//   if (!title || !description || !address || !phoneNumber) {
+//     return res.status(400).send('All fields are required');
+//   }
+
+//   const imageUrls = req.files['images'] ? req.files['images'].map(file => file.path) : [];
+//   const videoUrls = req.files['videos'] ? req.files['videos'].map(file => file.path) : [];
+
+//   const property = new Property({
+//     title,
+//     description,
+//     address,
+//     phoneNumber,
+//     images: imageUrls,
+//     videos: videoUrls,
+//     user: req.user._id,
+//   });
+
+//   try {
+//     const savedProperty = await property.save();
+//     res.send(savedProperty);
+//   } catch (err) {
+//     res.status(400).send(err);
+//   }
+// });
+
+
+// User routes
+
 app.post('/property', authenticateToken, upload.fields([{ name: 'images', maxCount: 5 }, { name: 'videos', maxCount: 2 }]), async (req, res) => {
-  const { title, description, address, phoneNumber } = req.body;
-
-  // Check for missing fields
-  if (!title || !description || !address || !phoneNumber) {
-    return res.status(400).send('All fields are required');
-  }
-
-  const imageUrls = req.files['images'] ? req.files['images'].map(file => file.path) : [];
-  const videoUrls = req.files['videos'] ? req.files['videos'].map(file => file.path) : [];
-
-  const property = new Property({
-    title,
-    description,
-    address,
-    phoneNumber,
-    images: imageUrls,
-    videos: videoUrls,
-    user: req.user._id,
-  });
-
   try {
+    const { title, description, address, phoneNumber } = req.body;
+
+    // Validate inputs
+    if (!title || !description || !address || !phoneNumber) {
+      return res.status(400).send('All fields are required');
+    }
+
+    const imageUrls = req.files['images'] ? req.files['images'].map(file => file.path) : [];
+    const videoUrls = req.files['videos'] ? req.files['videos'].map(file => file.path) : [];
+
+    const property = new Property({
+      title,
+      description,
+      address,
+      phoneNumber,
+      images: imageUrls,
+      videos: videoUrls,
+      user: req.user._id,
+    });
+
     const savedProperty = await property.save();
     res.send(savedProperty);
   } catch (err) {
-    res.status(400).send(err);
+    console.error('Error saving property:', err);  // Log error for debugging
+    res.status(500).send('Failed to add property');
   }
 });
 
 
-// User routes
+
+
 app.get('/user/properties', authenticateToken, async (req, res) => {
   try {
     const properties = await Property.find({ user: req.user._id });
