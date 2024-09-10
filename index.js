@@ -86,6 +86,13 @@ const adminAuth = (req, res, next) => {
   }
 };
 
+
+// // Root route
+app.get('/', (req, res) => {
+  res.send('Welcome to the Apartment Renting API');
+});
+
+
 // Setup multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
